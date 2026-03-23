@@ -64,6 +64,16 @@ MentorOS is a **Progressive Web App**. You can install it on your taskbar or hom
 
 ---
 
+## ▲ Vercel Deployment
+
+MentorOS v3.0 is optimized for Vercel Serverless:
+1.  Connect your GitHub repo to Vercel.
+2.  Add Environment Variables: `MONGODB_URI`, `DATABASE_NAME`, `SECRET_KEY`.
+3.  Vercel will automatically use `vercel.json` to route your API and serve the frontend.
+4.  No extra configuration needed!
+
+---
+
 ## 🐳 Docker Deployment
 
 Professional deployment is ready via Docker Compose.
