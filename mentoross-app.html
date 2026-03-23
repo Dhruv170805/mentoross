@@ -6,6 +6,9 @@
 <title>MentorOS — Adaptive Intelligence System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#5c6eff">
+<link rel="apple-touch-icon" href="icon.png">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -789,7 +792,12 @@ body::after{content:'';position:fixed;inset:0;background-image:url("data:image/s
 // ════════════════════════════════════════════════════════════════════════
 // CONFIG
 // ════════════════════════════════════════════════════════════════════════
-let API = localStorage.getItem('mentor_api_url') || 'http://localhost:8000';
+// Dynamic API detection: defaults to current origin in production
+const DEFAULT_API = (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') 
+  ? 'http://localhost:8000' 
+  : window.location.origin;
+
+let API = localStorage.getItem('mentor_api_url') || DEFAULT_API;
 let ACCESS_TOKEN = localStorage.getItem('access_token') || '';
 let REFRESH_TOKEN = localStorage.getItem('refresh_token') || '';
 let CURRENT_USER = JSON.parse(localStorage.getItem('user') || 'null');
@@ -799,9 +807,58 @@ let EXPLAIN_HISTORY = [];
 let CURRENT_TASKS = [];
 let CURRENT_NOTES = [];
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(console.error);
+  });
+}
+
+// Request Notification Permission
+async function initNotifications() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    await Notification.permission;
+    Notification.requestPermission();
+  }
+}
+
+// Automated Notification Scheduler
+let lastReviewNotif = null;
+function checkScheduledNotifications() {
+  const now = new Date();
+  const h = now.getHours();
+  const m = now.getMinutes();
+
+  // 1. Night Review (9 PM)
+  if (h === 21 && m === 0 && lastReviewNotif !== now.toDateString()) {
+    new Notification('MentorOS: Night Review', {
+      body: 'Time to analyze your progress and complete your daily review! 📊',
+      icon: 'icon.png'
+    });
+    lastReviewNotif = now.toDateString();
+  }
+
+  // 2. Task Reminders
+  if (CURRENT_TASKS) {
+    CURRENT_TASKS.forEach(t => {
+      if (t.reminder_time && !t.status === 'completed') {
+        const rt = new Date(t.reminder_time);
+        if (Math.abs(now - rt) < 60000) { // within 1 minute
+          new Notification(`Reminder: ${t.title}`, {
+            body: t.description || 'Task due now!',
+            icon: 'icon.png'
+          });
+        }
+      }
+    });
+  }
+}
+
+setInterval(checkScheduledNotifications, 60000); // Check every minute
+
 // On load, init API URL display
 document.getElementById('api-url-inp').value = API;
 document.addEventListener('DOMContentLoaded', () => {
+  initNotifications();
   if (ACCESS_TOKEN && CURRENT_USER) bootApp();
 });
 

@@ -55,6 +55,15 @@ Register a new account → Start learning!
 
 ---
 
+## 📱 Desktop & Mobile Installation (PWA)
+
+MentorOS is a **Progressive Web App**. You can install it on your taskbar or home screen for a standalone experience:
+1.  Open the app in your browser (Chrome Technical, Edge, or Safari).
+2.  Click the **"Install"** icon in the address bar (Desktop) or **"Add to Home Screen"** (iOS/Android).
+3.  Enjoy a professional, full-screen desktop experience on macOS and Windows.
+
+---
+
 ## 🐳 Docker Deployment
 
 Professional deployment is ready via Docker Compose.

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 60 * 24       # 24 hours
     JWT_REFRESH_EXPIRE_DAYS: int = 30
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    ALLOW_ORIGIN_REGEX: str = ".*"  # Default to permissive for dev, restrict in .env for prod
 
     # ── Database ──────────────────────────────────────────
     MONGODB_URI: str = "mongodb://localhost:27017"
