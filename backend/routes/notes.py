@@ -41,7 +41,27 @@ async def search_notes(
     user_id: str = Depends(get_current_user_id),
 ):
     results = await semantic_search(q, k=k, user_id=user_id)
-    return {"query": q, "results": results}
+    engine = "semantic"
+
+    # Fallback for serverless (Vercel) where heavy ML models are disabled
+    if not results:
+        engine = "keyword"
+        notes = await Note.find(
+            Note.user_id == user_id,
+            {"$or": [
+                {"title": {"$regex": q, "$options": "i"}},
+                {"content": {"$regex": q, "$options": "i"}},
+                {"tags": {"$in": [q]}}
+            ]}
+        ).limit(k).to_list()
+        
+        results = [{
+            "content": f"{n.title}: {n.content[:100]}...",
+            "score": 1.0,
+            "metadata": {"note_id": str(n.id), "title": n.title, "user_id": n.user_id}
+        } for n in notes]
+
+    return {"query": q, "results": results, "engine": engine}
 
 @router.delete("/{note_id}", status_code=204)
 async def delete_note(note_id: str, user_id: str = Depends(get_current_user_id)):

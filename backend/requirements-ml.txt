@@ -1,0 +1,4 @@
+# Full ML Requirements (Local/Docker)
+-r requirements.txt
+faiss-cpu==1.13.2
+sentence-transformers==3.3.1
