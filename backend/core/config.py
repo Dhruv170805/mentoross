@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
 
+    def validate_production_settings(self):
+        """Ensures critical settings are not defaults when in production."""
+        if self.is_production:
+            if "localhost" in self.MONGODB_URI:
+                raise ValueError("Production MONGODB_URI cannot be localhost. Please set it via environment variables.")
+            if "production_secret_key_not_set" in self.SECRET_KEY:
+                 raise ValueError("Production SECRET_KEY must be configured on Vercel.")
+
 
 
 

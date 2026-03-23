@@ -45,12 +45,23 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[f"{settings.RATE_
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown hooks."""
-    log.info("mentoross.starting", version=settings.APP_VERSION, env=settings.ENVIRONMENT)
-    await init_db()
-    log.info("mentoross.ready")
-    yield
-    log.info("mentoross.shutdown")
+    """Startup / shutdown hooks with robust error reporting."""
+    try:
+        log.info("mentoross.starting", version=settings.APP_VERSION, env=settings.ENVIRONMENT)
+        
+        # Validate settings before attempting to start
+        settings.validate_production_settings()
+        
+        await init_db()
+        log.info("mentoross.ready")
+        yield
+    except Exception as e:
+        log.error("mentoross.startup_failed", error=str(e))
+        # This helps Vercel show the error in the logs before the process exits
+        print(f"CRITICAL: Application startup failed: {e}", file=sys.stderr)
+        raise e
+    finally:
+        log.info("mentoross.shutdown")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
