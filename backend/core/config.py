@@ -2,13 +2,20 @@
 MentorOS – Core Configuration
 All values come from environment variables. Never hardcode secrets.
 """
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import List
 
+# Determine the base directory (where .env should be)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=os.path.join(BASE_DIR, ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
     # ── App ──────────────────────────────────────────────
     APP_NAME: str = "MentorOS API"
@@ -19,7 +26,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # ── Security ─────────────────────────────────────────
-    SECRET_KEY: str                          # REQUIRED – openssl rand -hex 32
+    SECRET_KEY: str = "production_secret_key_not_set_please_configure_on_vercel"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24       # 24 hours
     JWT_REFRESH_EXPIRE_DAYS: int = 30

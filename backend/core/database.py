@@ -24,13 +24,17 @@ async def init_db() -> None:
     mongodb.client = AsyncIOMotorClient(settings.MONGODB_URI, tlsCAFile=certifi.where())
     mongodb.db = mongodb.client[settings.DATABASE_NAME]
     
-    await init_beanie(
-        database=mongodb.db,
-        document_models=[
-            User, Task, Note, Roadmap, RoadmapPhase, RoadmapTopic, Resource, DailyPlan, AIReview, StudySession
-        ]
-    )
-    log.info("database.initialized", db=settings.DATABASE_NAME)
+    try:
+        await init_beanie(
+            database=mongodb.db,
+            document_models=[
+                User, Task, Note, Roadmap, RoadmapPhase, RoadmapTopic, Resource, DailyPlan, AIReview, StudySession
+            ]
+        )
+        log.info("database.initialized", db=settings.DATABASE_NAME)
+    except Exception as e:
+        log.error("database.init_failed", error=str(e))
+        raise e
 
 async def get_db():
     """FastAPI dependency: yields the async Mongo DB instance."""
