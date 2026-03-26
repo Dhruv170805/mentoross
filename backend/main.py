@@ -43,7 +43,6 @@ structlog.configure(
 log = structlog.get_logger()
 logging.basicConfig(level=logging.INFO)
 
-
 # ── Rate limiter ──────────────────────────────────────────────────────────────
 limiter = Limiter(
     key_func=get_remote_address,
@@ -55,17 +54,11 @@ limiter = Limiter(
 async def lifespan(app: FastAPI):
     """
     Startup / shutdown hooks.
-    Never raises — a startup warning is logged but the process stays alive.
-    On Vercel (serverless), each cold start runs this once per instance.
+    Never raises — startup failures are logged and gracefully degraded.
     """
     log.info("mentoross.starting", version=settings.APP_VERSION, env=settings.ENVIRONMENT)
-
-    # Warn about insecure defaults — does NOT crash
     settings.warn_if_insecure()
-
-    # Attempt DB connection — does NOT crash on failure
     await init_db()
-
     log.info("mentoross.ready", db_ready=mongodb.ready)
     yield
     log.info("mentoross.shutdown")
@@ -76,17 +69,14 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="AI-Powered Personal Learning OS — Production API",
-    # Hide docs in production to reduce attack surface
     docs_url="/docs" if not settings.is_production else None,
     redoc_url="/redoc" if not settings.is_production else None,
     lifespan=lifespan,
 )
 
-# Rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS — origins configured dynamically in settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -98,25 +88,73 @@ app.add_middleware(
 
 
 # ── Request logging middleware ────────────────────────────────────────────────
+# IMPORTANT: This middleware MUST catch all exceptions internally.
+# If an exception propagates out of call_next() it bypasses FastAPI's
+# exception handlers and crashes the Starlette task group → raw 500 traceback.
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     import time
     start = time.time()
-    response = await call_next(request)
-    duration_ms = round((time.time() - start) * 1000, 2)
-    log.info(
-        "http.request",
-        method=request.method,
-        path=request.url.path,
-        status=response.status_code,
-        duration_ms=duration_ms,
-    )
-    return response
+    try:
+        response = await call_next(request)
+        duration_ms = round((time.time() - start) * 1000, 2)
+        log.info(
+            "http.request",
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=duration_ms,
+        )
+        return response
+    except Exception as exc:
+        duration_ms = round((time.time() - start) * 1000, 2)
+        # Detect DB-not-initialised errors specifically
+        exc_name = type(exc).__name__
+        if "CollectionWasNotInitialized" in exc_name or "not initialized" in str(exc).lower():
+            log.warning(
+                "http.db_not_ready",
+                method=request.method,
+                path=request.url.path,
+                duration_ms=duration_ms,
+            )
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": (
+                        "The database is not connected. "
+                        "Please set MONGODB_URI, SECRET_KEY, and ENVIRONMENT "
+                        "in Vercel → Settings → Environment Variables, then redeploy."
+                    )
+                },
+            )
+        log.error(
+            "http.unhandled_exception",
+            method=request.method,
+            path=request.url.path,
+            error=str(exc),
+            duration_ms=duration_ms,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error. Please try again."},
+        )
 
 
 # ── Global error handler ──────────────────────────────────────────────────────
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    exc_name = type(exc).__name__
+    if "CollectionWasNotInitialized" in exc_name:
+        log.warning("db.not_initialized", path=request.url.path)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "Database not connected. "
+                    "Set MONGODB_URI in Vercel → Settings → Environment Variables."
+                )
+            },
+        )
     log.error("unhandled.exception", error=str(exc), path=request.url.path)
     return JSONResponse(
         status_code=500,
@@ -131,7 +169,7 @@ app.include_router(notes_router)
 app.include_router(roadmaps_router)
 app.include_router(res_router, prefix="/resources")
 app.include_router(plan_router, prefix="/plans")
-app.include_router(plan_router, prefix="/planner")   # alias for compatibility
+app.include_router(plan_router, prefix="/planner")
 app.include_router(review_router, prefix="/reviewer")
 app.include_router(teacher_router, prefix="/teacher")
 app.include_router(analytics_router, prefix="/analytics")
@@ -141,10 +179,9 @@ app.include_router(reminder_router, prefix="/reminders")
 # ── Health / Info ─────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])
 async def health():
-    """Live readiness probe — returns DB status without crashing."""
     return {
         "status": "healthy" if mongodb.ready else "degraded",
-        "db": "connected" if mongodb.ready else "unavailable",
+        "db": "connected" if mongodb.ready else "unavailable — set MONGODB_URI in Vercel env vars",
         "version": settings.APP_VERSION,
         "env": settings.ENVIRONMENT,
     }
@@ -160,7 +197,6 @@ async def root():
     }
 
 
-# ── Local dev entry point ─────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
