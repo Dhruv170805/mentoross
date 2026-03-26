@@ -428,15 +428,7 @@ body::after{content:'';position:fixed;inset:0;background-image:url("data:image/s
       <button class="btn-login" id="btn-register" onclick="doRegister()">Create Account →</button>
     </div>
 
-    <!-- API config -->
-    <div class="api-config" style="margin-top:18px">
-      <div class="api-config-title">⚙ BACKEND API URL</div>
-      <div class="api-url-row">
-        <input class="api-url-inp" id="api-url-inp" placeholder="http://localhost:8000" value="">
-        <button class="api-save-btn" onclick="saveApiUrl()">Save</button>
-      </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Point this to your running FastAPI backend. See README for setup.</div>
-    </div>
+    <!-- API URL is auto-detected from window.location.origin — no config needed -->
   </div>
 </div>
 
@@ -855,8 +847,7 @@ function checkScheduledNotifications() {
 
 setInterval(checkScheduledNotifications, 60000); // Check every minute
 
-// On load, init API URL display
-document.getElementById('api-url-inp').value = API;
+// API is auto-detected from origin — no manual init needed
 document.addEventListener('DOMContentLoaded', () => {
   initNotifications();
   if (ACCESS_TOKEN && CURRENT_USER) bootApp();
@@ -914,11 +905,7 @@ const DELETE = (p) => apiFetch('DELETE', p);
 // ════════════════════════════════════════════════════════════════════════
 // AUTH
 // ════════════════════════════════════════════════════════════════════════
-function saveApiUrl() {
-  API = document.getElementById('api-url-inp').value.trim().replace(/\/$/, '') || 'http://localhost:8000';
-  localStorage.setItem('mentor_api_url', API);
-  showToast('API URL saved: ' + API, 'ℹ️');
-}
+function saveApiUrl() { /* deprecated — API is auto-detected from window.location.origin */ }
 
 function switchTab(tab) {
   ['login','register'].forEach(t => {
@@ -1770,7 +1757,6 @@ function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.
 
 // Init on load
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('api-url-inp').value = API;
   buildTemplates();
   if (ACCESS_TOKEN && CURRENT_USER) bootApp();
 });

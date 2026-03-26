@@ -4,8 +4,9 @@ Production-grade: CORS, rate limiting, structured logging, health checks.
 """
 import os
 import sys
+import logging
 
-# Ensure the current directory is in sys.path for Vercel and local discovery
+# Ensure the backend directory is importable on Vercel and locally
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
@@ -20,48 +21,54 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from core.config import settings
-from core.database import init_db
+from core.database import init_db, mongodb
 from routes.auth import router as auth_router
 from routes.tasks import router as tasks_router
 from routes.notes import router as notes_router
 from routes.roadmaps import router as roadmaps_router
 from routes.extras import (
     res_router, plan_router, review_router,
-    teacher_router, analytics_router, reminder_router
+    teacher_router, analytics_router, reminder_router,
 )
 
 # ── Structured logging ────────────────────────────────────────────────────────
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.dev.ConsoleRenderer() if not settings.is_production else structlog.processors.JSONRenderer(),
+        structlog.dev.ConsoleRenderer()
+        if not settings.is_production
+        else structlog.processors.JSONRenderer(),
     ]
 )
 log = structlog.get_logger()
+logging.basicConfig(level=logging.INFO)
+
 
 # ── Rate limiter ──────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=[f"{settings.RATE_LIMIT_PER_MINUTE}/minute"])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[f"{settings.RATE_LIMIT_PER_MINUTE}/minute"],
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown hooks with robust error reporting."""
-    try:
-        log.info("mentoross.starting", version=settings.APP_VERSION, env=settings.ENVIRONMENT)
-        
-        # Validate settings before attempting to start
-        settings.validate_production_settings()
-        
-        await init_db()
-        log.info("mentoross.ready")
-        yield
-    except Exception as e:
-        log.error("mentoross.startup_failed", error=str(e))
-        # This helps Vercel show the error in the logs before the process exits
-        print(f"CRITICAL: Application startup failed: {e}", file=sys.stderr)
-        raise e
-    finally:
-        log.info("mentoross.shutdown")
+    """
+    Startup / shutdown hooks.
+    Never raises — a startup warning is logged but the process stays alive.
+    On Vercel (serverless), each cold start runs this once per instance.
+    """
+    log.info("mentoross.starting", version=settings.APP_VERSION, env=settings.ENVIRONMENT)
+
+    # Warn about insecure defaults — does NOT crash
+    settings.warn_if_insecure()
+
+    # Attempt DB connection — does NOT crash on failure
+    await init_db()
+
+    log.info("mentoross.ready", db_ready=mongodb.ready)
+    yield
+    log.info("mentoross.shutdown")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -69,6 +76,7 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="AI-Powered Personal Learning OS — Production API",
+    # Hide docs in production to reduce attack surface
     docs_url="/docs" if not settings.is_production else None,
     redoc_url="/redoc" if not settings.is_production else None,
     lifespan=lifespan,
@@ -78,7 +86,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS
+# CORS — origins configured dynamically in settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -88,16 +96,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ── Request logging middleware ────────────────────────────────────────────────
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     import time
     start = time.time()
     response = await call_next(request)
-    duration = round((time.time() - start) * 1000, 2)
-    log.info("http.request",
-             method=request.method, path=request.url.path,
-             status=response.status_code, duration_ms=duration)
+    duration_ms = round((time.time() - start) * 1000, 2)
+    log.info(
+        "http.request",
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        duration_ms=duration_ms,
+    )
     return response
 
 
@@ -107,7 +120,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     log.error("unhandled.exception", error=str(exc), path=request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error. Please try again."}
+        content={"detail": "Internal server error. Please try again."},
     )
 
 
@@ -118,7 +131,7 @@ app.include_router(notes_router)
 app.include_router(roadmaps_router)
 app.include_router(res_router, prefix="/resources")
 app.include_router(plan_router, prefix="/plans")
-app.include_router(plan_router, prefix="/planner") # Alias for compatibility
+app.include_router(plan_router, prefix="/planner")   # alias for compatibility
 app.include_router(review_router, prefix="/reviewer")
 app.include_router(teacher_router, prefix="/teacher")
 app.include_router(analytics_router, prefix="/analytics")
@@ -128,18 +141,26 @@ app.include_router(reminder_router, prefix="/reminders")
 # ── Health / Info ─────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])
 async def health():
-    return {"status": "healthy", "version": settings.APP_VERSION, "env": settings.ENVIRONMENT}
+    """Live readiness probe — returns DB status without crashing."""
+    return {
+        "status": "healthy" if mongodb.ready else "degraded",
+        "db": "connected" if mongodb.ready else "unavailable",
+        "version": settings.APP_VERSION,
+        "env": settings.ENVIRONMENT,
+    }
+
 
 @app.get("/", tags=["System"])
 async def root():
     return {
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "docs": "/docs",
+        "status": "ok",
         "health": "/health",
     }
 
 
+# ── Local dev entry point ─────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

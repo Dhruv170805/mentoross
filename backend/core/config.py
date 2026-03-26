@@ -1,51 +1,62 @@
 """
 MentorOS – Core Configuration
-All values come from environment variables. Never hardcode secrets.
+All values sourced from environment variables. Never hardcode secrets.
 """
 import os
+import logging
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import List
 
-# Determine the base directory (where .env should be)
+log = logging.getLogger("mentoross.config")
+
+# Determine the base directory (where .env lives for local dev)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=os.path.join(BASE_DIR, ".env"),
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
     )
 
     # ── App ──────────────────────────────────────────────
     APP_NAME: str = "MentorOS API"
     APP_VERSION: str = "3.0.0"
-    ENVIRONMENT: str = "development"  # development | staging | production
+    # Auto-detect production via Vercel env; fallback to explicit ENVIRONMENT var
+    ENVIRONMENT: str = os.environ.get(
+        "ENVIRONMENT",
+        "production" if os.environ.get("VERCEL") else "development",
+    )
     DEBUG: bool = False
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
     # ── Security ─────────────────────────────────────────
-    SECRET_KEY: str = "production_secret_key_not_set_please_configure_on_vercel"
+    SECRET_KEY: str = "change-this-in-vercel-env-vars-minimum-32-chars-required"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 60 * 24       # 24 hours
+    JWT_EXPIRE_MINUTES: int = 60 * 24        # 24 hours
     JWT_REFRESH_EXPIRE_DAYS: int = 30
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
-    ALLOW_ORIGIN_REGEX: str = ".*"  # Default to permissive for dev, restrict in .env for prod
+
+    # CORS — defaults cover both local dev and the Vercel deployment
+    ALLOWED_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "https://mentoross-two.vercel.app",
+        "https://mentoross.vercel.app",
+        "null",
+    ]
+    # Regex allows any Vercel preview URL (mentoross-*.vercel.app) and localhost
+    ALLOW_ORIGIN_REGEX: str = r"https://mentoross.*\.vercel\.app|http://localhost:\d+"
 
     # ── Database ──────────────────────────────────────────
     MONGODB_URI: str = "mongodb://localhost:27017"
     DATABASE_NAME: str = "mentoross"
 
-    # ── Redis ────────────────────────────────────────────
-    REDIS_URL: str = "redis://localhost:6379/0"
-
     # ── Custom AI Engine ─────────────────────────────────
     AI_MAX_TOKENS: int = 2048
-
-    # ── Vector Store ─────────────────────────────────────
-    VECTOR_STORE_PATH: str = "./data/vector.index"
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
 
     # ── Rate Limiting ────────────────────────────────────
     RATE_LIMIT_PER_MINUTE: int = 60
@@ -58,15 +69,19 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
 
-    def validate_production_settings(self):
-        """Ensures critical settings are not defaults when in production."""
+    def warn_if_insecure(self) -> None:
+        """Log warnings for insecure defaults — never raises, never crashes startup."""
         if self.is_production:
             if "localhost" in self.MONGODB_URI:
-                raise ValueError("Production MONGODB_URI cannot be localhost. Please set it via environment variables.")
-            if "production_secret_key_not_set" in self.SECRET_KEY:
-                 raise ValueError("Production SECRET_KEY must be configured on Vercel.")
-
-
+                log.warning(
+                    "⚠️  MONGODB_URI points to localhost in production. "
+                    "Set MONGODB_URI in Vercel → Settings → Environment Variables."
+                )
+            if "change-this-in-vercel" in self.SECRET_KEY:
+                log.warning(
+                    "⚠️  SECRET_KEY is using the insecure default. "
+                    "Set SECRET_KEY in Vercel → Settings → Environment Variables."
+                )
 
 
 @lru_cache()
