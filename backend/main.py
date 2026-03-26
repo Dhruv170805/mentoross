@@ -21,7 +21,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from core.config import settings
-from core.database import init_db, mongodb
+from core.database import init_db, ensure_db, mongodb
 from routes.auth import router as auth_router
 from routes.tasks import router as tasks_router
 from routes.notes import router as notes_router
@@ -95,6 +95,10 @@ app.add_middleware(
 async def log_requests(request: Request, call_next):
     import time
     start = time.time()
+    # Lazy reconnect: if a warm instance has a stale failed connection,
+    # attempt to reconnect before serving the request
+    if not mongodb.ready:
+        await ensure_db()
     try:
         response = await call_next(request)
         duration_ms = round((time.time() - start) * 1000, 2)
