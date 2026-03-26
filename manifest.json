@@ -1,7 +1,7 @@
 {
   "name": "MentorOS",
   "short_name": "MentorOS",
-  "description": "Adaptive Intelligence Learning Operating System",
+  "description": "AI-Powered Adaptive Intelligence Learning Operating System",
   "start_url": "mentoross-app.html",
   "display": "standalone",
   "background_color": "#080a12",
@@ -9,10 +9,30 @@
   "icons": [
     {
       "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     }
   ],
-  "orientation": "any"
+  "orientation": "any",
+  "categories": ["education", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Daily Plan",
+      "url": "mentoross-app.html#dashboard",
+      "description": "View your AI-generated daily plan"
+    },
+    {
+      "name": "AI Tutor",
+      "url": "mentoross-app.html#teach",
+      "description": "Ask Claude to explain a topic"
+    }
+  ],
+  "prefer_related_applications": false
 }
